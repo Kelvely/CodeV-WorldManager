@@ -33,6 +33,12 @@
             <version>27.0-jre</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>1.23</version>
+        </dependency>
+
     </dependencies>
 
 

@@ -3,6 +3,8 @@ package net.codevmc.wm;
 import ink.aquar.util.lock.Locker;
 import io.hekate.cluster.ClusterNode;
 import io.hekate.cluster.ClusterNodeId;
+import io.hekate.core.Hekate;
+import io.hekate.core.HekateFutureException;
 import io.hekate.messaging.MessagingFutureException;
 import io.hekate.messaging.broadcast.AggregateFuture;
 import io.hekate.messaging.broadcast.AggregateResult;
@@ -65,23 +67,42 @@ public class WorldManager {
         // DONE ConcurrentMap is doing shits, make a mapped locker.
     }
 
-    private String aggregateBestServerAndRegister(String worldName) {
-        AggregateFuture<String> aggregateFuture = clusterManager.getHekate().messaging().channel("home-loading", String.class).aggregate("get-load");
+    public void instantiate() throws HekateFutureException {
+        clusterManager.instantiate();
+    }
+
+    public void shutdown() throws HekateFutureException {
         try {
-            AggregateResult<String> aggregateResult = aggregateFuture.get();
-            ClusterNode bestNode = new ServerElection<>(aggregateResult.resultsByNode()).get();
-            if(bestNode == null) {
-                return null;
-            }
-            String bungeeCordId = new LineOfCommand(aggregateResult.resultsByNode().get(bestNode)).getArg(0);
-            ResponseFuture<String> respFuture = clusterManager.getHekate().messaging().channel("home-loading", String.class).request("load "+ worldName);
-            respFuture.response();
-            worlds.put(worldName, new WorldMeta(worldName, bungeeCordId, bestNode.id()));
-            return bungeeCordId;
-        } catch (InterruptedException | MessagingFutureException e) {
+            Hekate hekate= clusterManager.getHekate();
+            if(hekate != null)
+                hekate.leave();
+        } catch (InterruptedException e) {
             e.printStackTrace();
-            return null;
         }
+    }
+
+    private String aggregateBestServerAndRegister(String worldName) {
+        for(int i=0;i<3;i++) { // try 3 times
+            AggregateFuture<String> aggregateFuture = clusterManager.getHekate().messaging().channel("home-loading", String.class).aggregate("get-load");
+            try {
+                AggregateResult<String> aggregateResult = aggregateFuture.get();
+                ClusterNode bestNode = new ServerElection<>(aggregateResult.resultsByNode()).get();
+                if (bestNode == null) {
+                    return null;
+                }
+                String bungeeCordId = new LineOfCommand(aggregateResult.resultsByNode().get(bestNode)).getArg(0);
+                ResponseFuture<String> respFuture = clusterManager.getHekate().messaging().channel("home-loading", String.class).request("load " + worldName);
+                respFuture.response();
+                worlds.put(worldName, new WorldMeta(worldName, bungeeCordId, bestNode.id()));
+                return bungeeCordId;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                return null;
+            } catch (MessagingFutureException e) {
+                e.printStackTrace();
+            }
+        }
+        return null;
     }
 
     public boolean tryUnload(String worldName, long expectedExpireTime) {
